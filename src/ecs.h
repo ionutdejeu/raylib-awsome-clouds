@@ -134,8 +134,7 @@ Ecs
 
 };
 
-ECSDEF EcsStack*
-ecs_stack_make(size_t capacity)
+ECSDEF EcsStack* ecs_stack_make(size_t capacity)
 {
     EcsStack *s   = ECS_MALLOC(sizeof(*s));
     s->data       = ECS_MALLOC(sizeof(*s->data) * capacity);
@@ -146,39 +145,33 @@ ecs_stack_make(size_t capacity)
     return s;
 }
 
-ECSDEF void
-ecs_stack_destroy(EcsStack *s)
+ECSDEF void ecs_stack_destroy(EcsStack *s)
 {
     ECS_FREE(s->data);
     ECS_FREE(s);
 }
 
-ECSDEF bool
-ecs_stack_empty(EcsStack *s)
+ECSDEF bool ecs_stack_empty(EcsStack *s)
 {
     return s->empty;
 }
 
-ECSDEF bool
-ecs_stack_full(EcsStack *s)
+ECSDEF bool ecs_stack_full(EcsStack *s)
 {
     return s->top == s->capacity;
 }
 
-ECSDEF size_t
-ecs_stack_capacity(EcsStack *s)
+ECSDEF size_t ecs_stack_capacity(EcsStack *s)
 {
     return s->capacity;
 }
 
-ECSDEF size_t
-ecs_stack_top(EcsStack *s)
+ECSDEF size_t ecs_stack_top(EcsStack *s)
 {
     return s->top;
 }
 
-ECSDEF uint32_t
-ecs_stack_peek(EcsStack *s)
+ECSDEF uint32_t ecs_stack_peek(EcsStack *s)
 {
     if (s->empty)
     {
@@ -188,8 +181,7 @@ ecs_stack_peek(EcsStack *s)
     return s->data[s->top-1];
 }
 
-ECSDEF void
-ecs_stack_push(EcsStack *s, uint32_t val)
+ECSDEF void ecs_stack_push(EcsStack *s, uint32_t val)
 {
     if (ecs_stack_full(s)) 
     {
@@ -201,8 +193,7 @@ ecs_stack_push(EcsStack *s, uint32_t val)
     s->data[s->top++] = val;
 }
 
-ECSDEF uint32_t
-ecs_stack_pop(EcsStack *s)
+ECSDEF uint32_t ecs_stack_pop(EcsStack *s)
 {
     if (s->empty)
     {
@@ -214,7 +205,7 @@ ecs_stack_pop(EcsStack *s)
     return s->data[--s->top];
 }
 
-ECSDEF EcsComponentPool
+ECSDEF EcsComponentPool 
 ecs_component_pool_make(uint32_t count, uint32_t size, ecs_component_destroy destroy_func)
 {
     EcsComponentPool pool;
