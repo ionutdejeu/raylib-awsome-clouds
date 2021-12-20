@@ -33,7 +33,8 @@ typedef uint32_t EcsComponentType;
 typedef enum
 {
     ECS_SYSTEM_UPDATE,
-    ECS_SYSTEM_RENDER
+    ECS_SYSTEM_RENDER,
+    ECS_SYSTEM_CLOUD_UPDATE
 } EcsSystemType;
 
 typedef struct Ecs Ecs;
