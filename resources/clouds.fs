@@ -14,7 +14,7 @@ struct Spot {
 };
 
 uniform Spot spots[MAX_SPOTS];  // Spotlight positions array
-
+uniform vec3 tintColor;
 
 float Func(float pX)
 {
@@ -70,7 +70,7 @@ void main()
     vec2 pos = vec2(gl_FragCoord.x, gl_FragCoord.y);
 
 	// Render:
-	vec3 Color= BackColor;
+	vec3 Color= mix(BackColor,tintColor,0.1);
 	float a = 1.0;
 	for(float J=0.4; J<=1.0; J+=0.2)
 	{
@@ -83,6 +83,7 @@ void main()
 
 		float V = mix( 0.0, 1.0, 1.0 - smoothstep( 0.0, 0.01 +0.2*Blur, L ) );
 		vec3 Lc=  mix(CloudColor, vec3(1.0), J);
+		 
 		a= min(a,L);
 		Color = mix(Color, Lc,  V);
 	}

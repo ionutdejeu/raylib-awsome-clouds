@@ -46,55 +46,68 @@ typedef struct
 
 // Spot data
 
-typedef struct {
+typedef struct MovingCloud{
     Vector2 vel;
     float inner;
     float radius;
     bool isActive;
+    Vector2 sizes[4];
+    Vector2 positions[4];
+} MovingCloud;
 
-    // Shader locations
-    unsigned int posLoc;
-    unsigned int innerLoc;
-    unsigned int radiusLoc;
-    unsigned int isActiveLoc;
+typedef struct TintedSprite {
+  Color fromColor, toColor;
+  Vector2 fromPos, toPos;
+  Vector2 fromSize,toSize;
+  float progress;
+} TintedSprite;
 
-} Spot;
 
-typedef struct {
-  Color *tintsArray;
-} Sun;
-
-typedef struct { 
-  int percent;
-  Color c;
-} ColorKey;
-
-typedef struct {
+typedef struct SpriteRender{
   Texture2D *sprite;
-  ColorKey *gradientKeys;
-  int colorKeyCount; 
-} SriteComponent;
+  Rectangle sourceRect;
+  Rectangle targetRect;
+  
+} SpriteRender;
 
 
-Spot s;
 Ecs *ecs;
 EcsEnt e;
-EcsEnt *clouds;
+EcsEnt sunEntity; 
+EcsEnt mountainEntity;
+EcsEnt heartScoreEntity;
 Shader shaderClouds;
 Shader shaderSun;
 Texture2D mountain;
 Texture2D sun; 
+Texture2D heartTexture; 
+
+unsigned int cloudShaderTintColorPos;
 
 typedef enum
 {
     COMPONENT_TRANSFORM,
     COMPONENT_VELOCITY,
     COMPONENT_SPRITE,
+    COMPONENT_TINTED_SPRITE,
+    COMPONENT_HEART_SCORE_BAR,
     COMPONENT_MISSLE,
     COMPONENT_CLOUD_SPOT,
     COMPONENT_COUNT
 } ComponentType;
 
+ 
+
+Color interpolate(Color a, Color b, float t)
+{
+    // 0.0 <= t <= 1.0
+    return (Color){
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+        a.a + (b.a - a.a) * t
+    };
+}
 
 #define MOVEMENT_SYSTEM_MASK \
 ECS_MASK(1, COMPONENT_TRANSFORM)
@@ -107,6 +120,42 @@ movement_system(Ecs *ecs)
         if (ecs_ent_has_mask(ecs, e, MOVEMENT_SYSTEM_MASK))
         {
             CTransform *xform   = ecs_ent_get_component(ecs, e, COMPONENT_TRANSFORM);
+        }
+    }
+}
+
+#define SPRITE_RENDER_SYSTEM_MASK \
+ECS_MASK(3, COMPONENT_TRANSFORM,COMPONENT_SPRITE,COMPONENT_TINTED_SPRITE)
+void 
+sprite_render_system(Ecs *ecs)
+{
+    for (int i = 0; i < ecs_for_count(ecs); i++)
+    {
+        EcsEnt e = ecs_get_ent(ecs, i);
+        if (ecs_ent_has_mask(ecs, e, SPRITE_RENDER_SYSTEM_MASK))
+        {
+          TintedSprite *tintC   = ecs_ent_get_component(ecs, e, COMPONENT_TINTED_SPRITE);
+          if(tintC->progress<1.0){
+            //update
+            tintC->progress+=0.01*GetFrameTime();
+          }
+          CTransform *transformC   = ecs_ent_get_component(ecs, e, COMPONENT_TRANSFORM);
+          SpriteRender *s   = ecs_ent_get_component(ecs, e, COMPONENT_SPRITE);
+          Vector2 new_p = Vector2Lerp(tintC->fromPos,tintC->toPos,tintC->progress);
+          transformC->x = new_p.x;
+          transformC->y = new_p.y;
+          Color c = interpolate(tintC->fromColor,tintC->toColor,tintC->progress);
+          float sizeW = Lerp(tintC->fromSize.x,tintC->toSize.x,tintC->progress);
+          float sizeH = Lerp(tintC->fromSize.x,tintC->toSize.x,tintC->progress);
+          SetShaderValue(shaderClouds, cloudShaderTintColorPos,&c, SHADER_UNIFORM_VEC3);
+
+          DrawRectangle(0,0,screenWidth,screenWidth,c);
+
+          DrawTexturePro(*s->sprite,
+            s->sourceRect,
+            (Rectangle){transformC->x,transformC->y,sizeW,sizeH},
+            (Vector2){0,0},
+            0,c);
         }
     }
 }
@@ -127,7 +176,7 @@ cloud_update_system(Ecs *ecs)
         if (ecs_ent_has_mask(ecs, e, CLOUD_SYSTEM_MASK))
         {
             CTransform *xform   = ecs_ent_get_component(ecs, e, COMPONENT_TRANSFORM);
-            Spot *s   = ecs_ent_get_component(ecs, e, COMPONENT_CLOUD_SPOT);
+            MovingCloud *s   = ecs_ent_get_component(ecs, e, COMPONENT_CLOUD_SPOT);
             s->isActive = true;
             // update position based on speed 
             Vector2 transform = {xform->x,xform->y};
@@ -150,13 +199,18 @@ cloud_update_system(Ecs *ecs)
             DrawCircle(20+xform->x+Func(xform->y)*50*GetFrameTime(),33+xform->y+cos(xform->y)*50*GetFrameTime(), 50, (Color){192,232,245,255});                               
             DrawCircle(-20+xform->x+Func(xform->y)*20*GetFrameTime(),43+xform->y+cos(xform->y)*10*GetFrameTime(), 50, (Color){234,247,252,255});                               
             DrawCircle(-2+xform->x+Func(xform->y)*60*GetFrameTime(),-23+xform->y+cos(xform->y)*0.2*GetFrameTime(), 50, (Color){192,232,245,255});                               
-            DrawCircle(-80+xform->x+Func(xform->y)*60*GetFrameTime(),60+xform->y+cos(xform->y)*4*GetFrameTime(), 50, (Color){192,232,245,255});                               
+            DrawCircle(-80+xform->x+Func(xform->y)*60*GetFrameTime(),60+xform->y+cos(xform->y)*4*GetFrameTime(), 50, (Color){192,232,245,255}); 
 
-            SetShaderValue(shaderClouds, s->posLoc, &new_pos, SHADER_UNIFORM_VEC2);
-            SetShaderValue(shaderClouds, s->isActiveLoc, &act, SHADER_UNIFORM_INT);
-
+                             
         }
     }
+    // draw the heart score 
+    SpriteRender *heartRender = ecs_ent_get_component(ecs,heartScoreEntity,COMPONENT_SPRITE);
+    DrawTexturePro(*heartRender->sprite,
+    heartRender->sourceRect,
+    heartRender->targetRect,
+    (Vector2){0,0},
+    0,WHITE);       
 }
 
 void 
@@ -164,7 +218,11 @@ register_components(Ecs *ecs)
 {
     //Ecs, component index, component pool size, size of component, and component free func
     ecs_register_component(ecs, COMPONENT_TRANSFORM, 1000, sizeof(CTransform), NULL);
-    ecs_register_component(ecs, COMPONENT_CLOUD_SPOT, 1000, sizeof(Spot), NULL);
+    ecs_register_component(ecs, COMPONENT_CLOUD_SPOT, 1000, sizeof(MovingCloud), NULL);
+    ecs_register_component(ecs, COMPONENT_SPRITE, 1000, sizeof(SpriteRender), NULL);
+    ecs_register_component(ecs, COMPONENT_TINTED_SPRITE, 1000, sizeof(TintedSprite), NULL);
+
+
 }
 
 void 
@@ -176,6 +234,7 @@ register_systems(Ecs *ecs)
     //Ecs, function pointer to system (must take a parameter of Ecs), system type
     ecs_register_system(ecs, movement_system, ECS_SYSTEM_UPDATE);
     ecs_register_system(ecs, cloud_update_system, ECS_SYSTEM_CLOUD_UPDATE);
+    ecs_register_system(ecs, sprite_render_system, ECS_SYSTEM_SPRITE_RENDER);
 }
 
 
@@ -203,8 +262,11 @@ int main()
   shaderClouds = LoadShader(0, "../../resources/clouds.fs");
   mountain = LoadTexture("../../resources/mountain.png");
   sun = LoadTexture("../../resources/sun.png");
+  heartTexture = LoadTexture("../../resources/heart.png");
 
   iTimeLocation = GetShaderLocation(shaderClouds, "iTime");
+  cloudShaderTintColorPos = GetShaderLocation(shaderClouds, "tintColor");
+
 
 
   //Max entities, component count, system_count
@@ -212,52 +274,56 @@ int main()
   register_components(ecs);
   register_systems(ecs);
 
+
+  sunEntity = ecs_ent_make(ecs);
+
+  CTransform sunTransform = (CTransform){50, 50};
+  SpriteRender r; 
+  r.sourceRect = (Rectangle){0,0,sun.width,sun.height};
+  r.targetRect = (Rectangle){10,100,100,100};
+  r.sprite = &sun;
+
+  ecs_ent_add_component(ecs, sunEntity, COMPONENT_TRANSFORM, &sunTransform);    
+  ecs_ent_add_component(ecs, sunEntity, COMPONENT_SPRITE, &r);
+  TintedSprite ts; 
+  ts.fromColor = (Color){255,255,255,255};
+  ts.toColor = (Color){255,1,1,255};
+  ts.fromPos = (Vector2){50,50};
+  ts.toPos = (Vector2){550,200};
+  ts.fromSize = (Vector2){100,100};
+  ts.toSize = (Vector2){400,400};
+  ts.progress = 0;
+  ecs_ent_add_component(ecs, sunEntity, COMPONENT_TINTED_SPRITE, &ts);
+
   e = ecs_ent_make(ecs);
   CTransform xform = {0, 0};
   ecs_ent_add_component(ecs, e, COMPONENT_TRANSFORM, &xform);    
   startTime = GetTime();
 
-  Spot *cloudsStruct =  malloc(sizeof(Spot)*3);
-  for(int i = 0;i<3;i++){
-    EcsEnt *cloud = ecs_ent_make(ecs);
+  heartScoreEntity = ecs_ent_make(ecs);
 
-    CTransform cloudTransform = {0, 0};
-    char posName[32] = "spots[x].pos\0";
-    char innerName[32] = "spots[x].inner\0";
-    char radiusName[32] = "spots[x].radius\0";
-    char isActive[32] = "spots[x].isActive\0";
+  CTransform heartTransform = {200, 100};
+  ecs_ent_add_component(ecs, e, COMPONENT_TRANSFORM, &heartTransform);    
 
-    posName[6] = '0' + i;
-    innerName[6] = '0' + i;
-    radiusName[6] = '0' + i;
-    isActive[6] = '0' + i;
+  SpriteRender heartRenderer; 
+  r.sourceRect = (Rectangle){0,0,heartTexture.width,heartTexture.height};
+  r.targetRect = (Rectangle){100,200,100,100};
+  r.sprite = &heartTexture;
+  ecs_ent_add_component(ecs, heartScoreEntity, COMPONENT_SPRITE, &heartRenderer);
 
+  for (int i = 0;i<4;i++){
+    EcsEnt cloud = ecs_ent_make(ecs);
+    CTransform cloudT = {screenHeight+50, GetRandomValue(100,screenWidth)};
+    ecs_ent_add_component(ecs, e, COMPONENT_TRANSFORM, &cloudT);    
+    MovingCloud mc;
+    mc.inner=2;
+    mc.radius=2;
+    mc.isActive=true;
+    mc.vel=(Vector2){-1,0};
+    ecs_ent_add_component(ecs, e, COMPONENT_CLOUD_SPOT, &mc);    
 
-    cloudsStruct[i].posLoc = GetShaderLocation(shaderClouds, posName);
-    cloudsStruct[i].innerLoc = GetShaderLocation(shaderClouds, innerName);
-    cloudsStruct[i].radiusLoc = GetShaderLocation(shaderClouds, radiusName);
-    cloudsStruct[i].isActiveLoc = GetShaderLocation(shaderClouds, isActive);
-
-    Vector2 randPos = (Vector2){100,100};
-    cloudTransform.x = (float)randPos.x;
-    cloudTransform.y = (float)randPos.y;
-    cloudsStruct[i].vel = (Vector2){10, 10};
-
-    cloudsStruct[i].inner = 28.0f * (i + 1);
-    cloudsStruct[i].radius = 48.0f * (i + 1);
-    cloudsStruct[i].isActive = true;
-    
-    ecs_ent_add_component(ecs, cloud, COMPONENT_TRANSFORM, &cloudTransform);   
-    ecs_ent_add_component(ecs, cloud, COMPONENT_CLOUD_SPOT, &cloudsStruct[i]);
-
-    int act = 1;
-    SetShaderValue(shaderClouds, cloudsStruct[i].posLoc, &cloudTransform, SHADER_UNIFORM_VEC2);
-    SetShaderValue(shaderClouds, cloudsStruct[i].innerLoc, &cloudsStruct[i].inner, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(shaderClouds, cloudsStruct[i].radiusLoc, &cloudsStruct[i].radius, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(shaderClouds, cloudsStruct[i].isActiveLoc, &act, SHADER_UNIFORM_INT);
   }
-
-
+  
 
 #if defined(PLATFORM_WEB)
   emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
@@ -298,6 +364,7 @@ void UpdateDrawFrame(void)
   float diff = startTime - GetTime(); 
   SetShaderValue(shaderClouds, iTimeLocation,&diff, SHADER_UNIFORM_FLOAT);
 
+
   // Update
   //----------------------------------------------------------------------------------
   // TODO: Update your variables here
@@ -310,12 +377,7 @@ void UpdateDrawFrame(void)
   ClearBackground(GRAY);
   Vector2 origin = (Vector2){0,0};
   
-  DrawRectangle(0,0,screenWidth,screenWidth,(Color){67, 166, 198,255});
-  DrawTexturePro(sun,
-    (Rectangle){0,0,sun.width,sun.height},
-    (Rectangle){10,100,100,100},
-    origin,
-    0,WHITE);  //DrawTexture(building, 0, 0, WHITE);
+  ecs_run_systems(ecs, ECS_SYSTEM_SPRITE_RENDER);
   BeginShaderMode(shaderClouds);
       // Instead of a blank rectangle you could render here
       // a render texture of the full screen used to do screen
@@ -323,14 +385,11 @@ void UpdateDrawFrame(void)
       // to actually pay attention to the colour!)
       DrawRectangle(0, 0, screenWidth, screenHeight, WHITE);
   EndShaderMode();
-  //DrawTexturePro(mountain,(Rectangle){0,0,mountain.width,mountain.height},(Rectangle){
-  //  0,300,300,300},origin,0,WHITE);
+  DrawTexturePro(mountain,(Rectangle){0,0,mountain.width,mountain.height},(Rectangle){
+  0,300,300,300},origin,0,WHITE);
   
-  DrawText("Congrats! You created your first window!", 190, 200, 20, LIGHTGRAY);
-  //DrawRectangle(100, 100, 100, 300, RED);
-  //DrawRectangleV((Vector2){300, 200}, (Vector2){100, 30}, BLUE);
-  //sysDraw.update(&e);
   ecs_run_systems(ecs, ECS_SYSTEM_CLOUD_UPDATE);
+
   EndDrawing();
   //----------------------------------------------------------------------------------
 }

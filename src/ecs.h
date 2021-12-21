@@ -34,7 +34,8 @@ typedef enum
 {
     ECS_SYSTEM_UPDATE,
     ECS_SYSTEM_RENDER,
-    ECS_SYSTEM_CLOUD_UPDATE
+    ECS_SYSTEM_CLOUD_UPDATE,
+    ECS_SYSTEM_SPRITE_RENDER
 } EcsSystemType;
 
 typedef struct Ecs Ecs;
