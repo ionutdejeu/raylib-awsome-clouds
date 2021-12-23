@@ -1,6 +1,7 @@
 #version 100
 #define TAU 6.28318530718
 #define MAX_SPOTS 3
+precision highp float;
 uniform float iTime;
 const vec2 iResolution = vec2(800,600);
 const vec3 BackColor	= vec3(0.0, 0.4, 0.58);

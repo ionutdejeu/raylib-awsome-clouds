@@ -17,6 +17,8 @@
 #include "../raylib/src/raymath.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+
 #define ECS_IMPLEMENTATION
 
 #include "ecs.h"
@@ -62,8 +64,17 @@ typedef struct TintedSprite {
   float progress;
 } TintedSprite;
 
+typedef struct TextToast { 
+  Color backgroundColor;
+  Color textColor;
+  Rectangle backgroundRect;
+  char *message; 
+  time_t fromTime;
+  time_t toTime;
+} TextToastComponent;
 
-typedef struct SpriteRender{
+
+typedef struct SpriteRender {
   Texture2D *sprite;
   Rectangle sourceRect;
   Rectangle targetRect;
@@ -77,10 +88,14 @@ EcsEnt sunEntity;
 EcsEnt mountainEntity;
 EcsEnt heartScoreEntity;
 Shader shaderClouds;
-Shader shaderSun;
 Texture2D mountain;
 Texture2D sun; 
 Texture2D heartTexture; 
+bool IsGameOver = false;
+bool GameStarted = false;
+time_t timeTillGameStars;
+time_t timeWelcomTextVisible;
+time_t timeGameOverTextVisible;
 
 unsigned int cloudShaderTintColorPos;
 
@@ -93,7 +108,8 @@ typedef enum
     COMPONENT_HEART_SCORE_BAR,
     COMPONENT_MISSLE,
     COMPONENT_CLOUD_SPOT,
-    COMPONENT_COUNT
+    COMPONENT_COUNT,
+    COMPONENT_TEXT_TOAST
 } ComponentType;
 
  
@@ -139,6 +155,9 @@ sprite_render_system(Ecs *ecs)
             //update
             tintC->progress+=0.01*GetFrameTime();
           }
+          else{
+            IsGameOver = true;
+          }
           CTransform *transformC   = ecs_ent_get_component(ecs, e, COMPONENT_TRANSFORM);
           SpriteRender *s   = ecs_ent_get_component(ecs, e, COMPONENT_SPRITE);
           Vector2 new_p = Vector2Lerp(tintC->fromPos,tintC->toPos,tintC->progress);
@@ -165,11 +184,42 @@ float Func(float pX)
 	return sin(pX);
 }
 
+#define TEXT_TOAST_MASK \
+ECS_MASK(1, COMPONENT_TEXT_TOAST)
+void 
+text_toast_system(Ecs *ecs)
+{
+  for (int i = 0; i < ecs_for_count(ecs); i++)
+  {
+      EcsEnt e = ecs_get_ent(ecs, i);
+      if (ecs_ent_has_mask(ecs, e, TEXT_TOAST_MASK))
+      {
+         TextToastComponent *toast   = ecs_ent_get_component(ecs, e, COMPONENT_TEXT_TOAST);
+         time_t now = time(0);
+         if(toast->fromTime > now && toast->toTime < now){
+           DrawRectanglePro(toast->backgroundRect,(Vector2){0,0},0,toast->backgroundColor);
+           DrawText(*toast->message,toast->backgroundRect.x+10,toast->backgroundRect.y+10,20,toast->textColor);
+         }else if (toast->toTime < now){
+           ecs_ent_remove_component(ecs,e,COMPONENT_TEXT_TOAST);
+           ecs_ent_destroy(ecs,e);
+         }
+      }
+  }
+
+}
+
 #define CLOUD_SYSTEM_MASK \
 ECS_MASK(2, COMPONENT_TRANSFORM,COMPONENT_CLOUD_SPOT)
 void 
 cloud_update_system(Ecs *ecs)
 {
+    // draw the heart score 
+    SpriteRender *heartRender = ecs_ent_get_component(ecs,heartScoreEntity,COMPONENT_SPRITE);
+    DrawTexturePro(*heartRender->sprite,
+    heartRender->sourceRect,
+    heartRender->targetRect,
+    (Vector2){0,0},
+    0,WHITE);       
     for (int i = 0; i < ecs_for_count(ecs); i++)
     {
         EcsEnt e = ecs_get_ent(ecs, i);
@@ -189,10 +239,27 @@ cloud_update_system(Ecs *ecs)
             // if mouse is pressed
             if(IsMouseButtonPressed(0)){
                 // check overlapp 
-                bool overlapp = CheckCollisionCircles(new_pos,s->inner,(Vector2){GetMouseX(),GetMouseY()},s->radius);
+                bool overlapp = CheckCollisionCircles(new_pos,s->radius,(Vector2){GetMouseX(),GetMouseY()},s->radius);
                 if(overlapp){
-                    printf("clicked on cloud");
+                    xform->x = GetRandomValue(100,screenWidth);
+                    xform->y = screenHeight+50;
+                    s->vel = Vector2Scale(s->vel,2);
+                    TintedSprite *ts   = ecs_ent_get_component(ecs, sunEntity, COMPONENT_TINTED_SPRITE);
+                    
+                    if(ts->progress-0.01>0){
+                        ts->progress-=0.01;
+                    }
                 }
+            }
+            
+
+            if(xform->y <=-10){
+              TintedSprite *ts   = ecs_ent_get_component(ecs, sunEntity, COMPONENT_TINTED_SPRITE);   
+              if(ts->progress+0.01<1){
+                  ts->progress+=0.01;
+                  xform->x = GetRandomValue(100,screenWidth);
+                  xform->y = screenHeight+50;
+              }
             }
 
             DrawCircle(xform->x, xform->y+Func(xform->x)*10, 50, (Color){234,247,252,255});                               
@@ -204,25 +271,18 @@ cloud_update_system(Ecs *ecs)
                              
         }
     }
-    // draw the heart score 
-    SpriteRender *heartRender = ecs_ent_get_component(ecs,heartScoreEntity,COMPONENT_SPRITE);
-    DrawTexturePro(*heartRender->sprite,
-    heartRender->sourceRect,
-    heartRender->targetRect,
-    (Vector2){0,0},
-    0,WHITE);       
+    
 }
 
 void 
 register_components(Ecs *ecs)
 {
     //Ecs, component index, component pool size, size of component, and component free func
-    ecs_register_component(ecs, COMPONENT_TRANSFORM, 1000, sizeof(CTransform), NULL);
-    ecs_register_component(ecs, COMPONENT_CLOUD_SPOT, 1000, sizeof(MovingCloud), NULL);
-    ecs_register_component(ecs, COMPONENT_SPRITE, 1000, sizeof(SpriteRender), NULL);
-    ecs_register_component(ecs, COMPONENT_TINTED_SPRITE, 1000, sizeof(TintedSprite), NULL);
-
-
+    ecs_register_component(ecs, COMPONENT_TRANSFORM, 100, sizeof(CTransform), NULL);
+    ecs_register_component(ecs, COMPONENT_CLOUD_SPOT, 100, sizeof(MovingCloud), NULL);
+    ecs_register_component(ecs, COMPONENT_SPRITE, 100, sizeof(SpriteRender), NULL);
+    ecs_register_component(ecs, COMPONENT_TINTED_SPRITE, 100, sizeof(TintedSprite), NULL);
+    ecs_register_component(ecs, COMPONENT_TEXT_TOAST, 100, sizeof(TextToastComponent), NULL);
 }
 
 void 
@@ -235,6 +295,8 @@ register_systems(Ecs *ecs)
     ecs_register_system(ecs, movement_system, ECS_SYSTEM_UPDATE);
     ecs_register_system(ecs, cloud_update_system, ECS_SYSTEM_CLOUD_UPDATE);
     ecs_register_system(ecs, sprite_render_system, ECS_SYSTEM_SPRITE_RENDER);
+    ecs_register_system(ecs, text_toast_system, ECS_SYSTEM_TEXT_TOAST_UPDATE);
+
 }
 
 
@@ -258,11 +320,10 @@ int main()
   
   InitWindow(screenWidth, screenHeight, "Clouds simulation shader");
   InitAudioDevice();
-  shaderSun = LoadShader(0, "../../resources/circle.fs");
-  shaderClouds = LoadShader(0, "../../resources/clouds.fs");
-  mountain = LoadTexture("../../resources/mountain.png");
-  sun = LoadTexture("../../resources/sun.png");
-  heartTexture = LoadTexture("../../resources/heart.png");
+  shaderClouds = LoadShader(0, "resources/clouds.fs");
+  mountain = LoadTexture("resources/mountain.png");
+  sun = LoadTexture("resources/sun.png");
+  heartTexture = LoadTexture("resources/heart.png");
 
   iTimeLocation = GetShaderLocation(shaderClouds, "iTime");
   cloudShaderTintColorPos = GetShaderLocation(shaderClouds, "tintColor");
@@ -270,7 +331,7 @@ int main()
 
 
   //Max entities, component count, system_count
-  ecs = ecs_make(1000, COMPONENT_COUNT, 3);
+  ecs = ecs_make(100, COMPONENT_COUNT, 4);
   register_components(ecs);
   register_systems(ecs);
 
@@ -303,27 +364,38 @@ int main()
   heartScoreEntity = ecs_ent_make(ecs);
 
   CTransform heartTransform = {200, 100};
-  ecs_ent_add_component(ecs, e, COMPONENT_TRANSFORM, &heartTransform);    
+  ecs_ent_add_component(ecs, heartScoreEntity, COMPONENT_TRANSFORM, &heartTransform);    
 
   SpriteRender heartRenderer; 
   r.sourceRect = (Rectangle){0,0,heartTexture.width,heartTexture.height};
-  r.targetRect = (Rectangle){100,200,100,100};
+  r.targetRect = (Rectangle){100,100,50,50};
   r.sprite = &heartTexture;
   ecs_ent_add_component(ecs, heartScoreEntity, COMPONENT_SPRITE, &heartRenderer);
 
   for (int i = 0;i<4;i++){
     EcsEnt cloud = ecs_ent_make(ecs);
-    CTransform cloudT = {screenHeight+50, GetRandomValue(100,screenWidth)};
-    ecs_ent_add_component(ecs, e, COMPONENT_TRANSFORM, &cloudT);    
+    CTransform cloudT = { GetRandomValue(100,screenWidth),screenHeight+50};
+    ecs_ent_add_component(ecs, cloud, COMPONENT_TRANSFORM, &cloudT);    
     MovingCloud mc;
-    mc.inner=2;
-    mc.radius=2;
+    mc.inner=20;
+    mc.radius=20;
     mc.isActive=true;
-    mc.vel=(Vector2){-1,0};
-    ecs_ent_add_component(ecs, e, COMPONENT_CLOUD_SPOT, &mc);    
+    mc.vel=(Vector2){0,GetRandomValue(-10,-20)};
+    ecs_ent_add_component(ecs, cloud, COMPONENT_CLOUD_SPOT, &mc);    
 
   }
-  
+
+  EcsEnt welcomeTextEnt = ecs_ent_make(ecs);
+  TextToastComponent ttc;
+  char messageWelcom[] = "Welcome to GOLDEN HOUR"; 
+  //strcpy(&ttc.message,messageWelcom);
+  ttc.backgroundColor = WHITE;
+  ttc.backgroundRect = (Rectangle){100,0,screenWidth,200};
+  ttc.textColor = BLACK;
+
+  timeTillGameStars = time(NULL) +10;
+  printf("%ld",timeTillGameStars);
+
 
 #if defined(PLATFORM_WEB)
   emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
@@ -357,13 +429,21 @@ int main()
 //----------------------------------------------------------------------------------
 void UpdateDrawFrame(void)
 {
+  float diff = 0;
 
-  ecs_run_systems(ecs, ECS_SYSTEM_UPDATE);
- 
-
-  float diff = startTime - GetTime(); 
-  SetShaderValue(shaderClouds, iTimeLocation,&diff, SHADER_UNIFORM_FLOAT);
-
+  if(GameStarted){
+    ecs_run_systems(ecs, ECS_SYSTEM_UPDATE);
+    diff = GetTime()-startTime; 
+    SetShaderValue(shaderClouds, iTimeLocation,&diff, SHADER_UNIFORM_FLOAT);
+  }
+  
+  
+  if (time(NULL)<timeTillGameStars){
+     GameStarted = false;
+     startTime = GetTime();
+  }else{
+    GameStarted = true;
+  }
 
   // Update
   //----------------------------------------------------------------------------------
@@ -374,22 +454,44 @@ void UpdateDrawFrame(void)
   //----------------------------------------------------------------------------------
   BeginDrawing();
 
-  ClearBackground(GRAY);
   Vector2 origin = (Vector2){0,0};
-  
-  ecs_run_systems(ecs, ECS_SYSTEM_SPRITE_RENDER);
-  BeginShaderMode(shaderClouds);
-      // Instead of a blank rectangle you could render here
-      // a render texture of the full screen used to do screen
-      // scaling (slight adjustment to shader would be required
-      // to actually pay attention to the colour!)
-      DrawRectangle(0, 0, screenWidth, screenHeight, WHITE);
-  EndShaderMode();
-  DrawTexturePro(mountain,(Rectangle){0,0,mountain.width,mountain.height},(Rectangle){
-  0,300,300,300},origin,0,WHITE);
-  
-  ecs_run_systems(ecs, ECS_SYSTEM_CLOUD_UPDATE);
+  if(!GameStarted){
+      ClearBackground(RAYWHITE);
+      DrawRectangle(100,100,screenWidth-210,screenHeight-210,WHITE);
+      DrawText("Make the sunset last...",110,110,40,ORANGE);
+      DrawText("Click on the clouds..",110,150,40,ORANGE);
+      DrawText("Protect the sun ",110,200,40,ORANGE);
+      DrawText("Make the golden hour last",110,250,40,ORANGE);
+  }
+  else if(GameStarted && !IsGameOver){
 
+     
+    ecs_run_systems(ecs, ECS_SYSTEM_SPRITE_RENDER);
+    ecs_run_systems(ecs, ECS_SYSTEM_UPDATE);
+    
+    BeginShaderMode(shaderClouds);
+        // Instead of a blank rectangle you could render here
+        // a render texture of the full screen used to do screen
+        // scaling (slight adjustment to shader would be required
+        // to actually pay attention to the colour!)
+        DrawRectangle(0, 0, screenWidth, screenHeight, WHITE);
+    EndShaderMode();
+    DrawTexturePro(mountain,(Rectangle){0,0,mountain.width,mountain.height},(Rectangle){
+    0,300,300,300},origin,0,WHITE);
+    
+    ecs_run_systems(ecs, ECS_SYSTEM_TEXT_TOAST_UPDATE);
+
+    ecs_run_systems(ecs, ECS_SYSTEM_CLOUD_UPDATE);
+    DrawText(TextFormat("Sunset: %d",(int)(diff)),10,10,40,ORANGE);
+
+  }
+  if(IsGameOver){
+    DrawRectangle(100,100,screenWidth-210,screenHeight-210,WHITE);
+    DrawText("Congratz..",110,110,40,PINK);
+    DrawText(TextFormat("The sunset lasterd %2i",(int)(diff)),110,150,40,PINK);
+    DrawText("Refresh to restart",110,200,40,PINK);
+  }
+ 
   EndDrawing();
   //----------------------------------------------------------------------------------
 }
